@@ -7,7 +7,7 @@ from urllib.parse import urljoin
 from prettytable import PrettyTable
 
 
-session_code = '382f3uss4jkp043t6jlt8mr1u7'
+session_code = 'nsfo3skp42c5rog3tsc36l52e3'
 catalog = 'GEC'
 
 head, payload = {
@@ -32,16 +32,14 @@ def magic_self_edit_session(code):
     with open(__file__, 'r+', encoding='utf8') as f:
         s = f.read()
         r = re.sub("(session_code = )'(.*?)'", r"\1'%s'" % code, s)
-        f.seek(0)
-        f.write(r)
-        f.truncate()
+        not f.seek(0) and not f.write(r) and not f.truncate()
 
 
 def update_session_code(resp):
     session_code = re.search('ACIXSTORE=([^&]*)', resp.text).group(1)
     payload.update({'ACIXSTORE': session_code})
-    magic_self_edit_session(session_code)
     print('new session code:', session_code)
+    magic_self_edit_session(session_code)
 
 
 def print_table(titles, results):
@@ -50,7 +48,7 @@ def print_table(titles, results):
     x = PrettyTable(T)
     for r in results:
         n = r['目前剩餘名額']
-        if (n.isdigit() and int(n) > 0) or not n.isdigit():
+        if not n.isdigit() or int(n) > 0:
             x.add_row([r[k] for k in T])
     print(x)
 
