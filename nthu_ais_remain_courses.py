@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 from prettytable import PrettyTable
 
 
-session_code = 'mf8qg139sb6he4b1mvf99puqa7'
+session_code = 'u5crvavtg4p4j665fso35jbsk5'
 catalog = 'GEC'
 
 head = {
@@ -22,7 +22,9 @@ class SessionTimeout(Exception):
 
 
 def http(method, url, **kwargs):
-    return requests.request(method, url, headers=head, **kwargs)
+    resp = requests.request(method, url, headers=head, **kwargs)
+    resp.encoding = 'big5'
+    return resp
 
 
 def magic_self_edit_session(code):
@@ -53,11 +55,33 @@ class NTHU_AIS():
 
     def query(self):
         resp = http('POST', self.query_url, data=self.payload)
-        resp.encoding = 'big5'
         if 'session is interrupted!' in resp.text:
             raise SessionTimeout()
         soup = BeautifulSoup(resp.text, 'html.parser')
-        return soup.select('table')[1].find_all('tr')
+        return self._parse_rows(soup.select('table')[1].find_all('tr'))
+
+    def _parse_rows(self, rows):
+        def remove_en(td):
+            brs = td.find_all('br')[-1:]
+            [br.extract() for br in brs]
+            return td.text
+        titles = [remove_en(td) for td in rows[0].find_all('td')]
+        table = [
+            {key: remove_en(td)
+             for key, td in zip(titles, tr.find_all('td'))}
+            for tr in rows[1:]
+        ]
+        return self._create_table(titles, table)
+
+    def _create_table(self, titles, table):
+        dont_show = ['目前選上人數', '目前待亂數人數']
+        cols = [t for t in titles if t not in dont_show]
+        x = PrettyTable(cols)
+        for r in table:
+            n = r['目前剩餘名額']
+            if not n.isdigit() or int(n) > 0:
+                x.add_row([r[k] for k in cols])
+        return x
 
     def man_captcha(self, param):
         content = http('GET', self.auth_img_url, params=param).content
@@ -86,7 +110,9 @@ class NTHU_AIS():
 
     def _invoke_session(self, invoke_url):
         resp = http('GET', urljoin(self.index, invoke_url))
-        print(re.search('alert\((.*?)\)', resp.text).group(1))
+        alert = re.search('alert\((.*?)\)', resp.text)
+        if alert:
+            print(alert.group(1))
 
     def login_sys(self, account, password):
         self._set_user(account, password)
@@ -101,42 +127,16 @@ class NTHU_AIS():
         self.payload.update({'ACIXSTORE': acixstore})
         magic_self_edit_session(acixstore)
 
-    def print_table(self, titles, results):
-        N = ['目前選上人數', '目前待亂數人數']
-        T = [t for t in titles if t not in N]
-        x = PrettyTable(T)
-        for r in results:
-            n = r['目前剩餘名額']
-            if not n.isdigit() or int(n) > 0:
-                x.add_row([r[k] for k in T])
-        print(x)
-
 
 def main():
     try:
         nthu_ais = NTHU_AIS()
-        rows = nthu_ais.query()
+        x = nthu_ais.query()
     except SessionTimeout:
         import secret
         nthu_ais.login_sys(secret.NTHU_AIS_ID, secret.NTHU_AIS_PWD)
-        rows = nthu_ais.query()
-
-    def remove_en(td):
-        if td.find('br'):
-            td.find_all('br')[-1].extract()
-        return td.text
-
-    titles = [remove_en(td) for td in rows[0].find_all('td')]
-    results = [
-        {key: remove_en(td)
-         for key, td in zip(titles, tr.find_all('td'))}
-        for tr in rows[1:]
-    ]
-    nthu_ais.print_table(titles, results)
-
+        x = nthu_ais.query()
+    print(x)
 
 if __name__ == '__main__':
-    # main()
-    nthu_ais = NTHU_AIS()
-    nthu_ais.login_sys('10255102', '22')
-    nthu_ais.login_sys('10255102', '22')
+    main()
