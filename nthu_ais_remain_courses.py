@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 from prettytable import PrettyTable
 
 
-session_code = 'u5crvavtg4p4j665fso35jbsk5'
+session_code = 'b96956vnm5h86v6nk5rjn5c6v0'
 catalog = 'GEC'
 
 head = {
@@ -25,6 +25,10 @@ def http(method, url, **kwargs):
     resp = requests.request(method, url, headers=head, **kwargs)
     resp.encoding = 'big5'
     return resp
+
+
+def task_map(*args):
+    return list(map(*args))
 
 
 def magic_self_edit_session(code):
@@ -47,40 +51,38 @@ class NTHU_AIS():
         self.payload = self._get_query_payload()
 
     def _get_query_payload(self):
-        return {
-            'ACIXSTORE': session_code,
-            'select': catalog,
-            'act': '1'
-        }
+        return {'ACIXSTORE': session_code, 'select': catalog, 'act': '1'}
 
     def query(self):
         resp = http('POST', self.query_url, data=self.payload)
         if 'session is interrupted!' in resp.text:
             raise SessionTimeout()
-        soup = BeautifulSoup(resp.text, 'html.parser')
-        return self._parse_rows(soup.select('table')[1].find_all('tr'))
+        return self._parse(resp.text)
 
-    def _parse_rows(self, rows):
+    def _parse(self, content):
+
         def remove_en(td):
             brs = td.find_all('br')[-1:]
             [br.extract() for br in brs]
             return td.text
-        titles = [remove_en(td) for td in rows[0].find_all('td')]
+
+        soup = BeautifulSoup(content, 'html.parser')
+        rows = soup.select('table')[1].find_all('tr')
+        titles = task_map(remove_en, rows[0].find_all('td'))
         table = [
-            {key: remove_en(td)
-             for key, td in zip(titles, tr.find_all('td'))}
-            for tr in rows[1:]
+            {k: remove_en(v) for k, v in zip(titles, row.find_all('td'))}
+            for row in rows[1:]
         ]
         return self._create_table(titles, table)
 
     def _create_table(self, titles, table):
         dont_show = ['目前選上人數', '目前待亂數人數']
-        cols = [t for t in titles if t not in dont_show]
-        x = PrettyTable(cols)
+        task_map(titles.remove, dont_show)
+        x = PrettyTable(titles)
         for r in table:
             n = r['目前剩餘名額']
             if not n.isdigit() or int(n) > 0:
-                x.add_row([r[k] for k in cols])
+                x.add_row(task_map(r.get, titles))
         return x
 
     def man_captcha(self, param):
