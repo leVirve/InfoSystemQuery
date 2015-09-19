@@ -1,14 +1,15 @@
 import os
 import re
-import lxml.html
 import requests
 import tempfile
+import lxml.html
 from bs4 import BeautifulSoup
 from urllib.parse import urljoin
 from prettytable import PrettyTable
 
+''' ------------------------ You can edit these lines --------------------- '''
 
-session_code = '6stcmntct3iacu595vbbdkich5'
+session_code = 'a76o51tg4gdjp07n4avkqhj8s4'
 catalog = 'GEC'
 
 head = {
@@ -16,9 +17,7 @@ head = {
     'Mozilla/5.0 (Windows NT 6.1; WOW64; rv:40.0) Gecko/20100101 Firefox/40.1'
 }
 
-
-class SessionTimeout(Exception):
-    pass
+''' ----------------------------------------------------------------------- '''
 
 
 def http(method, url, **kwargs):
@@ -35,7 +34,11 @@ def magic_self_edit_session(code):
     with open(__file__, 'r+', encoding='utf8') as f:
         s = f.read()
         r = re.sub("(session_code = )'(.*?)'", r"\1'%s'" % code, s)
-        not f.seek(0) and not f.write(r) and not f.truncate()
+        not f.seek(0) and not f.write(r)
+
+
+class SessionTimeout(Exception):
+    pass
 
 
 class NTHU_AIS():
@@ -45,16 +48,13 @@ class NTHU_AIS():
     login_url = urljoin(index, 'pre_select_entry.php')
     auth_img_url = urljoin(index, 'auth_img.php')
 
-    def __init__(self, account=None, password=None):
-        self.account = account
-        self.password = password
-        self.payload = self._get_query_payload()
-
-    def _get_query_payload(self):
-        return {'ACIXSTORE': session_code, 'select': catalog, 'act': '1'}
+    def __init__(self, catalog, session_code):
+        self.account = None
+        self.catalog = catalog
+        self.session = session_code
 
     def query(self):
-        resp = http('POST', self.query_url, data=self.payload)
+        resp = http('POST', self.query_url, data=self.get_payload('query'))
         if 'session is interrupted!' in resp.text:
             raise SessionTimeout()
         return self._parse(resp.text)
@@ -96,6 +96,15 @@ class NTHU_AIS():
         task_map(add_row, content)
         return x
 
+    def login_sys(self, account, password):
+        self.account = {'account': account, 'passwd': password}
+        resp = http('POST', self.login_url, data=self.get_payload('login'))
+        match = re.search('url=(.*?\?ACIXSTORE=(.*?)&hint=\d*)', resp.text)
+        if not match:
+            return ('登入失敗')
+        self._invoke_session(match.group(1))
+        self._update_session_code(match.group(2))
+
     def man_captcha(self, param):
         content = http('GET', self.auth_img_url, params=param).content
         with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
@@ -103,23 +112,26 @@ class NTHU_AIS():
             os.startfile(tmp.name)
         return input('驗證碼> ')
 
-    def _get_fnstr(self):
-        doc = lxml.html.fromstring(http('GET', self.index).text)
-        return doc.xpath('//input[@name="fnstr"]')[0].value
+    def get_payload(self, action):
+        return {
+            'login': self._get_login_payload,
+            'query': self._get_query_payload,
+        }[action]()
+
+    def _get_query_payload(self):
+        return {'ACIXSTORE': self.session, 'select': self.catalog, 'act': '1'}
 
     def _get_login_payload(self):
-        fnstr = self._get_fnstr()
-        captcha = self.man_captcha({'pwdstr': fnstr})
-        return {
-            'account': self.account,
-            'passwd': self.password,
-            'fnstr': fnstr,
-            'passwd2': captcha
-        }
 
-    def _set_user(self, account, password):
-        self.account = account
-        self.password = password
+        def get_fnstr():
+            doc = lxml.html.fromstring(http('GET', self.index).text)
+            return doc.xpath('//input[@name="fnstr"]')[0].value
+
+        fnstr = get_fnstr()
+        captcha = self.man_captcha({'pwdstr': fnstr})
+        payload = {'fnstr': fnstr, 'passwd2': captcha}
+        payload.update(self.account)
+        return payload
 
     def _invoke_session(self, invoke_url):
         resp = http('GET', urljoin(self.index, invoke_url))
@@ -127,29 +139,29 @@ class NTHU_AIS():
         if alert:
             print(alert.group(1))
 
-    def login_sys(self, account, password):
-        self._set_user(account, password)
-        resp = http('POST', self.login_url, data=self._get_login_payload())
-        match = re.search('url=(.*?\?ACIXSTORE=(.*?)&hint=\d*)', resp.text)
-        if match:
-            self._invoke_session(match.group(1))
-            self.update_session_code(match.group(2))
-
-    def update_session_code(self, acixstore):
+    def _update_session_code(self, acixstore):
         print('new session code:', acixstore)
-        self.payload.update({'ACIXSTORE': acixstore})
+        self.session = acixstore
         magic_self_edit_session(acixstore)
 
 
 def main():
     try:
-        nthu_ais = NTHU_AIS()
+        nthu_ais = NTHU_AIS(catalog, session_code)
         x = nthu_ais.query()
     except SessionTimeout:
-        import secret
-        nthu_ais.login_sys(secret.NTHU_AIS_ID, secret.NTHU_AIS_PWD)
-        x = nthu_ais.query()
-    print(x)
+        try:
+            import secret
+            account = secret.NTHU_AIS_ID
+            password = secret.NTHU_AIS_PWD
+        except ImportError:
+            import getpass
+            account = input('帳號: ')
+            password = getpass.getpass('密碼: ')
+        state = nthu_ais.login_sys(account, password)
+        x = state or nthu_ais.query()
+    finally:
+        print(x)
 
 if __name__ == '__main__':
     main()
