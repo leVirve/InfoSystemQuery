@@ -1,4 +1,4 @@
-# NTHU Academic Info System Query
+# Academic Info System Query
 
 ### Requirement:
 - requests
