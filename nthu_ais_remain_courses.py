@@ -8,7 +8,7 @@ from urllib.parse import urljoin
 from prettytable import PrettyTable
 
 
-session_code = 'b96956vnm5h86v6nk5rjn5c6v0'
+session_code = '6stcmntct3iacu595vbbdkich5'
 catalog = 'GEC'
 
 head = {
@@ -67,22 +67,33 @@ class NTHU_AIS():
             return td.text
 
         soup = BeautifulSoup(content, 'html.parser')
-        rows = soup.select('table')[1].find_all('tr')
-        titles = task_map(remove_en, rows[0].find_all('td'))
         table = [
-            {k: remove_en(v) for k, v in zip(titles, row.find_all('td'))}
-            for row in rows[1:]
+            [remove_en(e) for e in row.find_all('td')]
+            for row in soup.select('table')[1].find_all('tr')
         ]
-        return self._create_table(titles, table)
+        return self._create_table(titles=table[0], content=table[1:])
 
-    def _create_table(self, titles, table):
-        dont_show = ['目前選上人數', '目前待亂數人數']
-        task_map(titles.remove, dont_show)
-        x = PrettyTable(titles)
-        for r in table:
-            n = r['目前剩餘名額']
+    def _create_table(self, titles, content):
+
+        def make_titles(data):
+            focus = data.index('目前剩餘名額')
+            dont_show = ['目前選上人數', '目前待亂數人數']
+            show_cols = [i for i, _ in enumerate(data) if _ not in dont_show]
+            task_map(titles.remove, dont_show)
+            return focus, show_cols
+
+        def gen_row(row):
+            n = row[focus]
             if not n.isdigit() or int(n) > 0:
-                x.add_row(task_map(r.get, titles))
+                return [row[i] for i in show_cols]
+
+        def add_row(row):
+            e = gen_row(row)
+            x.add_row(e) if e else None
+
+        focus, show_cols = make_titles(titles)
+        x = PrettyTable(titles)
+        task_map(add_row, content)
         return x
 
     def man_captcha(self, param):
